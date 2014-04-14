@@ -1,20 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"flag"
-	"hash/crc32"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"gopkg.in/yaml.v1"
+	"github.com/thinxer/ggfetch"
 
 	"github.com/golang/groupcache"
+	"gopkg.in/yaml.v1"
 )
 
 type Config struct {
@@ -29,39 +26,6 @@ var (
 	flagConfigFile = flag.String("config", "config.yml", "Config file to use.")
 )
 
-func fetch(url string, maxSize int64) ([]byte, error) {
-	log.Println("Fetching", url)
-	resp, err := http.Get(url)
-
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	buf := new(bytes.Buffer)
-
-	// Check Content Type
-	io.CopyN(buf, resp.Body, 512)
-	contentType := http.DetectContentType(buf.Bytes())
-	if !strings.HasPrefix(contentType, "text/") {
-		return nil, nil
-	}
-
-	// Copy remaining content.
-	if maxSize == 0 {
-		_, err = io.Copy(buf, resp.Body)
-	} else {
-		remaining := maxSize - 512
-		if remaining > 0 {
-			_, err = io.CopyN(buf, resp.Body, remaining)
-		}
-	}
-	if err != io.EOF {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
 func main() {
 	flag.Parse()
 
@@ -72,26 +36,19 @@ func main() {
 	config := Config{}
 	yaml.Unmarshal(bytes, &config)
 
-	// Setup groupcache
+	// Setup groupcache peers
 	peers := groupcache.NewHTTPPool("http://" + config.Me)
 	peersList := []string{}
 	for _, peer := range config.Peers {
 		peersList = append(peersList, "http://"+peer)
 	}
 	peers.Set(peersList...)
-	group := groupcache.NewGroup("fetch", config.CacheSize*(1<<20), groupcache.GetterFunc(
-		func(ctx groupcache.Context, key string, dest groupcache.Sink) error {
-			url := strings.SplitN(key, ":", 2)[1]
-			bytes, err := fetch(url, config.MaxItemSize*1024)
-			if err != nil {
-				return err
-			}
-			dest.SetBytes(bytes)
-			return nil
-		}))
 	go func() {
 		panic(http.ListenAndServe(config.Me, http.HandlerFunc(peers.ServeHTTP)))
 	}()
+
+	// Setup GGFetch
+	fetcher := ggfetch.New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, 30*time.Second)
 
 	// Setup
 	http.HandleFunc("/fetch", func(response http.ResponseWriter, request *http.Request) {
@@ -102,16 +59,9 @@ func main() {
 		if err != nil {
 			ttl = 0
 		}
-		prefix := ":"
-		if ttl > 0 {
-			offset := int64(crc32.ChecksumIEEE([]byte(url))) % ttl
-			id := (time.Now().Unix() + offset) / ttl
-			prefix = strconv.FormatInt(id, 16) + ":"
-		}
-		var buf []byte
-		err = group.Get(nil, prefix+url, groupcache.AllocatingByteSliceSink(&buf))
+		buf, err := fetcher.Fetch(url, ttl)
 		if err != nil {
-			log.Println("Error while group.Get:", err)
+			log.Println("Error while fetching:", err)
 		}
 		_, err = response.Write(buf)
 		if err != nil {
