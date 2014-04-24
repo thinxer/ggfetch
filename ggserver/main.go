@@ -4,6 +4,7 @@ import (
 	"flag"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -44,11 +45,25 @@ func main() {
 	}
 	peers.Set(peersList...)
 	go func() {
-		panic(http.ListenAndServe(config.Me, http.HandlerFunc(peers.ServeHTTP)))
+		panic(http.ListenAndServe(config.Me, peers))
 	}()
-
 	// Setup GGFetch
-	fetcher := ggfetch.New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, 30*time.Second)
+	timeout := 30 * time.Second
+	timeoutDialer := func(netw, addr string) (net.Conn, error) {
+		start := time.Now()
+		conn, err := net.DialTimeout(netw, addr, timeout)
+		if err != nil {
+			return nil, err
+		}
+		conn.SetDeadline(start.Add(timeout))
+		return conn, nil
+	}
+	fetcher := ggfetch.New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			Dial:  timeoutDialer,
+		},
+	})
 
 	// Setup
 	http.HandleFunc("/fetch", func(response http.ResponseWriter, request *http.Request) {

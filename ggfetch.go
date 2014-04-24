@@ -5,7 +5,6 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -62,19 +61,9 @@ func (gf Fetcher) Fetch(url string, ttl int64) ([]byte, error) {
 	return buf, err
 }
 
-func New(name string, cacheSize int64, itemSize int64, timeout time.Duration) Fetcher {
-	client := &http.Client{
-		Transport: &http.Transport{
-			Dial: func(netw, addr string) (net.Conn, error) {
-				start := time.Now()
-				conn, err := net.DialTimeout(netw, addr, timeout)
-				if err != nil {
-					return nil, err
-				}
-				conn.SetDeadline(start.Add(timeout))
-				return conn, nil
-			},
-		},
+func New(name string, cacheSize int64, itemSize int64, client *http.Client) Fetcher {
+	if client == nil {
+		client = http.DefaultClient
 	}
 	return Fetcher{
 		groupcache.NewGroup("fetch", cacheSize, groupcache.GetterFunc(
