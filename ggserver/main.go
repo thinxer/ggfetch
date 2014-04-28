@@ -74,10 +74,12 @@ func main() {
 		if err != nil {
 			ttl = 0
 		}
-		buf, err := fetcher.Fetch(url, ttl)
+		var buf []byte
+		url, buf, err = fetcher.Fetch(url, ttl)
 		if err != nil {
 			log.Println("Error while fetching:", err)
 		}
+		response.Header().Set("X-Real-URL", url)
 		_, err = response.Write(buf)
 		if err != nil {
 			log.Println("Error while writing response:", err)

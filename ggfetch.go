@@ -2,6 +2,7 @@ package ggfetch
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -23,15 +24,21 @@ func (r StatusCodeError) Error() string {
 	return fmt.Sprintf("Response code %d for URL: %s", r.Code, r.URL)
 }
 
-func fetch(client *http.Client, url string, maxSize int64) ([]byte, error) {
+type fetchResponse struct {
+	URL     string
+	Content []byte
+}
+
+func fetch(client *http.Client, url string, maxSize int64) (response fetchResponse, err error) {
 	log.Println("Fetching", url)
 	resp, err := client.Get(url)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, StatusCodeError{url, resp.StatusCode}
+		err = StatusCodeError{url, resp.StatusCode}
+		return
 	}
 
 	buf := new(bytes.Buffer)
@@ -39,7 +46,7 @@ func fetch(client *http.Client, url string, maxSize int64) ([]byte, error) {
 	io.CopyN(buf, resp.Body, 512)
 	contentType := http.DetectContentType(buf.Bytes())
 	if !strings.HasPrefix(contentType, "text/") {
-		return nil, nil
+		return
 	}
 
 	// Copy remaining content.
@@ -52,16 +59,16 @@ func fetch(client *http.Client, url string, maxSize int64) ([]byte, error) {
 		}
 	}
 	if err != io.EOF {
-		return nil, err
+		return
 	}
-	return buf.Bytes(), nil
+	return fetchResponse{URL: resp.Request.URL.String(), Content: buf.Bytes()}, nil
 }
 
 type Fetcher struct {
 	group *groupcache.Group
 }
 
-func (gf Fetcher) Fetch(url string, ttl int64) ([]byte, error) {
+func (gf Fetcher) Fetch(url string, ttl int64) (realUrl string, content []byte, err error) {
 	prefix := ":"
 	if ttl > 0 {
 		offset := int64(crc32.ChecksumIEEE([]byte(url))) % ttl
@@ -69,8 +76,16 @@ func (gf Fetcher) Fetch(url string, ttl int64) ([]byte, error) {
 		prefix = strconv.FormatInt(id, 16) + ":"
 	}
 	var buf []byte
-	err := gf.group.Get(nil, prefix+url, groupcache.AllocatingByteSliceSink(&buf))
-	return buf, err
+	err = gf.group.Get(nil, prefix+url, groupcache.AllocatingByteSliceSink(&buf))
+	if err != nil {
+		return
+	}
+	var response fetchResponse
+	err = json.Unmarshal(buf, &response)
+	if err != nil {
+		return
+	}
+	return response.URL, response.Content, nil
 }
 
 func New(name string, cacheSize int64, itemSize int64, client *http.Client) Fetcher {
@@ -81,7 +96,11 @@ func New(name string, cacheSize int64, itemSize int64, client *http.Client) Fetc
 		groupcache.NewGroup("fetch", cacheSize, groupcache.GetterFunc(
 			func(_ groupcache.Context, key string, dest groupcache.Sink) error {
 				url := strings.SplitN(key, ":", 2)[1]
-				bytes, err := fetch(client, url, itemSize)
+				response, err := fetch(client, url, itemSize)
+				if err != nil {
+					return err
+				}
+				bytes, err := json.Marshal(response)
 				if err != nil {
 					return err
 				}
