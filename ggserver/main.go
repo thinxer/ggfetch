@@ -6,13 +6,15 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"strconv"
 	"time"
 
-	"github.com/thinxer/ggfetch"
-
+	"code.google.com/p/go.net/publicsuffix"
 	"github.com/golang/groupcache"
 	"gopkg.in/yaml.v1"
+
+	"github.com/thinxer/ggfetch"
 )
 
 type Config struct {
@@ -58,11 +60,18 @@ func main() {
 		conn.SetDeadline(start.Add(timeout))
 		return conn, nil
 	}
+	jar, err := cookiejar.New(&cookiejar.Options{
+		PublicSuffixList: publicsuffix.List,
+	})
+	if err != nil {
+		panic(err)
+	}
 	fetcher := ggfetch.New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			Dial:  timeoutDialer,
 		},
+		Jar: jar,
 	})
 
 	// Setup
