@@ -31,6 +31,7 @@ type fetchResponse struct {
 
 func fetch(client *http.Client, url string, maxSize int64) (response fetchResponse, err error) {
 	log.Println("Fetching", url)
+	url = escapeFragment(url)
 	resp, err := client.Get(url)
 	if err != nil {
 		return
@@ -61,7 +62,13 @@ func fetch(client *http.Client, url string, maxSize int64) (response fetchRespon
 	if err != io.EOF {
 		return
 	}
-	return fetchResponse{URL: resp.Request.URL.String(), Content: buf.Bytes()}, nil
+	if newurl, escaped := escapeFragmentMeta(url, buf.Bytes()); escaped {
+		return fetch(client, newurl, maxSize)
+	}
+	response.Content = buf.Bytes()
+	response.URL = unescapeFragment(url)
+	err = nil
+	return
 }
 
 type Fetcher struct {
