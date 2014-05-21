@@ -66,7 +66,7 @@ func fetch(client *http.Client, url string, maxSize int64) (response fetchRespon
 		return fetch(client, newurl, maxSize)
 	}
 	response.Content = buf.Bytes()
-	response.URL = unescapeFragment(url)
+	response.URL = unescapeFragment(resp.Request.URL.String())
 	err = nil
 	return
 }
