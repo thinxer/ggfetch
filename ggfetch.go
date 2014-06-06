@@ -95,6 +95,10 @@ func (gf Fetcher) Fetch(url string, ttl int64) (realUrl string, content []byte, 
 	return response.URL, response.Content, nil
 }
 
+func (gf Fetcher) CacheStats(which groupcache.CacheType) groupcache.CacheStats {
+	return gf.group.CacheStats(which)
+}
+
 func New(name string, cacheSize int64, itemSize int64, client *http.Client) Fetcher {
 	if client == nil {
 		client = http.DefaultClient

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"log"
@@ -94,6 +95,13 @@ func main() {
 			log.Println("Error while writing response:", err)
 		}
 	})
+
+	http.HandleFunc("/stats", func(response http.ResponseWriter, request *http.Request) {
+		json.NewEncoder(response).Encode(struct {
+			Main, Hot groupcache.CacheStats
+		}{fetcher.CacheStats(groupcache.MainCache), fetcher.CacheStats(groupcache.HotCache)})
+	})
+
 	log.Println("Listening on", config.Listen)
 	panic(http.ListenAndServe(config.Listen, nil))
 }
