@@ -1,4 +1,4 @@
-package ggfetch
+package main
 
 import (
 	"bytes"

@@ -14,8 +14,6 @@ import (
 	"code.google.com/p/go.net/publicsuffix"
 	"github.com/golang/groupcache"
 	"gopkg.in/yaml.v1"
-
-	"github.com/thinxer/ggfetch"
 )
 
 type Config struct {
@@ -29,6 +27,37 @@ type Config struct {
 var (
 	flagConfigFile = flag.String("config", "config.yml", "Config file to use.")
 )
+
+var (
+	defaultHTTPClient *http.Client
+)
+
+// http client
+func init() {
+	timeout := 30 * time.Second
+	timeoutDialer := func(netw, addr string) (net.Conn, error) {
+		start := time.Now()
+		conn, err := net.DialTimeout(netw, addr, timeout)
+		if err != nil {
+			return nil, err
+		}
+		conn.SetDeadline(start.Add(timeout))
+		return conn, nil
+	}
+	jar, err := cookiejar.New(&cookiejar.Options{
+		PublicSuffixList: publicsuffix.List,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defaultHTTPClient = &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			Dial:  timeoutDialer,
+		},
+		Jar: jar,
+	}
+}
 
 func main() {
 	flag.Parse()
@@ -50,30 +79,9 @@ func main() {
 	go func() {
 		panic(http.ListenAndServe(config.Me, peers))
 	}()
+
 	// Setup GGFetch
-	timeout := 30 * time.Second
-	timeoutDialer := func(netw, addr string) (net.Conn, error) {
-		start := time.Now()
-		conn, err := net.DialTimeout(netw, addr, timeout)
-		if err != nil {
-			return nil, err
-		}
-		conn.SetDeadline(start.Add(timeout))
-		return conn, nil
-	}
-	jar, err := cookiejar.New(&cookiejar.Options{
-		PublicSuffixList: publicsuffix.List,
-	})
-	if err != nil {
-		panic(err)
-	}
-	fetcher := ggfetch.New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			Dial:  timeoutDialer,
-		},
-		Jar: jar,
-	})
+	fetcher := New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
 
 	// Setup
 	http.HandleFunc("/fetch", func(response http.ResponseWriter, request *http.Request) {
