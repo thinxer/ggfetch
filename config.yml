@@ -5,5 +5,7 @@ peers:
     - 127.0.0.1:8002
 # in MB
 cache_size: 64
+image_cache_size: 64
 # in KB
 max_item_size: 256
+image_max_item_size: 4096

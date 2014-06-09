@@ -17,11 +17,13 @@ import (
 )
 
 type Config struct {
-	Listen      string   // API Listen Address
-	Me          string   // as ip:port
-	Peers       []string // as a list of ip:port
-	CacheSize   int64    `yaml:"cache_size"`    // in MB
-	MaxItemSize int64    `yaml:"max_item_size"` // in KB
+	Listen           string   // API Listen Address
+	Me               string   // as ip:port
+	Peers            []string // as a list of ip:port
+	CacheSize        int64    `yaml:"cache_size"`          // in MB
+	MaxItemSize      int64    `yaml:"max_item_size"`       // in KB
+	ImageCacheSize   int64    `yaml:"image_cache_size"`    // in MB
+	ImageMaxItemSize int64    `yaml:"image_max_item_size"` // in KB
 }
 
 var (
@@ -81,33 +83,65 @@ func main() {
 	}()
 
 	// Setup GGFetch
-	fetcher := New("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
+	htmlFetcher := NewHTMLFetcher("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
+	imageFetcher := NewImageFetcher("image", config.ImageCacheSize<<20, config.ImageMaxItemSize<<10, defaultHTTPClient)
 
 	// Setup
 	http.HandleFunc("/fetch", func(response http.ResponseWriter, request *http.Request) {
-		request.ParseForm()
 		url := request.FormValue("url")
-		ttl_s := request.FormValue("ttl")
-		ttl, err := strconv.ParseInt(ttl_s, 10, 64)
+		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
+
+		realUrl, buf, err := htmlFetcher.Fetch(url, ttl)
 		if err != nil {
-			ttl = 0
+			log.Println("Error while fetching HTML:", err)
 		}
-		var buf []byte
-		url, buf, err = fetcher.Fetch(url, ttl)
-		if err != nil {
-			log.Println("Error while fetching:", err)
-		}
-		response.Header().Set("X-Real-URL", url)
+		response.Header().Set("X-Real-URL", realUrl)
 		_, err = response.Write(buf)
 		if err != nil {
 			log.Println("Error while writing response:", err)
 		}
 	})
 
+	http.HandleFunc("/resize", func(response http.ResponseWriter, request *http.Request) {
+		url := request.FormValue("url")
+		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
+		width, _ := strconv.Atoi(request.FormValue("width"))
+
+		bytes, err := imageFetcher.Fetch(url, ttl, width)
+		if err != nil {
+			log.Println("Error while fetching image:", err)
+		}
+		_, err = response.Write(bytes)
+		if err != nil {
+			log.Println("Error while writing response:", err)
+		}
+	})
+
+	http.HandleFunc("/dimension", func(response http.ResponseWriter, request *http.Request) {
+		url := request.FormValue("url")
+		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
+
+		config, err := imageFetcher.FetchDimension(url, ttl)
+		if err != nil {
+			log.Println("Error while fetching image config:", err)
+		}
+		err = json.NewEncoder(response).Encode(config)
+		if err != nil {
+			log.Println("Error while writing response:", err)
+		}
+	})
+
 	http.HandleFunc("/stats", func(response http.ResponseWriter, request *http.Request) {
-		json.NewEncoder(response).Encode(struct {
-			Main, Hot groupcache.CacheStats
-		}{fetcher.CacheStats(groupcache.MainCache), fetcher.CacheStats(groupcache.HotCache)})
+		var stats struct {
+			HTML, Image struct {
+				Main, Hot groupcache.CacheStats
+			}
+		}
+		stats.HTML.Main = htmlFetcher.CacheStats(groupcache.MainCache)
+		stats.HTML.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
+		stats.Image.Main = htmlFetcher.CacheStats(groupcache.MainCache)
+		stats.Image.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
+		json.NewEncoder(response).Encode(stats)
 	})
 
 	log.Println("Listening on", config.Listen)

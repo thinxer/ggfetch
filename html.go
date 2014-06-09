@@ -29,7 +29,7 @@ type fetchResponse struct {
 	Content []byte
 }
 
-func fetch(client *http.Client, url string, maxSize int64) (response fetchResponse, err error) {
+func fetchHTML(client *http.Client, url string, maxSize int64) (response fetchResponse, err error) {
 	log.Println("Fetching", url)
 	url = escapeFragment(url)
 	resp, err := client.Get(url)
@@ -63,7 +63,7 @@ func fetch(client *http.Client, url string, maxSize int64) (response fetchRespon
 		return
 	}
 	if newurl, escaped := escapeFragmentMeta(url, buf.Bytes()); escaped {
-		return fetch(client, newurl, maxSize)
+		return fetchHTML(client, newurl, maxSize)
 	}
 	response.Content = buf.Bytes()
 	response.URL = unescapeFragment(resp.Request.URL.String())
@@ -71,11 +71,11 @@ func fetch(client *http.Client, url string, maxSize int64) (response fetchRespon
 	return
 }
 
-type Fetcher struct {
+type HTMLFetcher struct {
 	group *groupcache.Group
 }
 
-func (gf Fetcher) Fetch(url string, ttl int64) (realUrl string, content []byte, err error) {
+func (gf HTMLFetcher) Fetch(url string, ttl int64) (realUrl string, content []byte, err error) {
 	prefix := ":"
 	if ttl > 0 {
 		offset := int64(crc32.ChecksumIEEE([]byte(url))) % ttl
@@ -95,32 +95,27 @@ func (gf Fetcher) Fetch(url string, ttl int64) (realUrl string, content []byte, 
 	return response.URL, response.Content, nil
 }
 
-func (gf Fetcher) CacheStats(which groupcache.CacheType) groupcache.CacheStats {
+func (gf HTMLFetcher) CacheStats(which groupcache.CacheType) groupcache.CacheStats {
 	return gf.group.CacheStats(which)
 }
 
-func New(name string, cacheSize int64, itemSize int64, client *http.Client) Fetcher {
+func NewHTMLFetcher(name string, cacheSize int64, itemSize int64, client *http.Client) HTMLFetcher {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return Fetcher{
-		groupcache.NewGroup("fetch", cacheSize, groupcache.GetterFunc(
-			func(_ groupcache.Context, key string, dest groupcache.Sink) error {
-				url := strings.SplitN(key, ":", 2)[1]
-				response, err := fetch(client, url, itemSize)
-				if err != nil {
-					return err
-				}
-				bytes, err := json.Marshal(response)
-				if err != nil {
-					return err
-				}
-				dest.SetBytes(bytes)
-				return nil
-			})),
+	var getter groupcache.GetterFunc
+	getter = func(_ groupcache.Context, key string, dest groupcache.Sink) error {
+		url := strings.SplitN(key, ":", 2)[1]
+		response, err := fetchHTML(client, url, itemSize)
+		if err != nil {
+			return err
+		}
+		bytes, err := json.Marshal(response)
+		if err != nil {
+			return err
+		}
+		dest.SetBytes(bytes)
+		return nil
 	}
-}
-
-func Get(name string) Fetcher {
-	return Fetcher{groupcache.GetGroup(name)}
+	return HTMLFetcher{groupcache.NewGroup(name, cacheSize, getter)}
 }
