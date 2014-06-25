@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -134,10 +135,12 @@ func main() {
 
 	http.HandleFunc("/stats", func(response http.ResponseWriter, request *http.Request) {
 		var stats struct {
+			Goroutines  int
 			HTML, Image struct {
 				Main, Hot groupcache.CacheStats
 			}
 		}
+		stats.Goroutines = runtime.NumGoroutine()
 		stats.HTML.Main = htmlFetcher.CacheStats(groupcache.MainCache)
 		stats.HTML.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
 		stats.Image.Main = htmlFetcher.CacheStats(groupcache.MainCache)
