@@ -90,6 +90,7 @@ func main() {
 	http.HandleFunc("/fetch", func(response http.ResponseWriter, request *http.Request) {
 		url := request.FormValue("url")
 		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
+		log.Println("Fetching HTML:", url)
 
 		realUrl, buf, err := htmlFetcher.Fetch(url, ttl)
 		if err != nil {
@@ -106,6 +107,7 @@ func main() {
 		url := request.FormValue("url")
 		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
 		width, _ := strconv.Atoi(request.FormValue("width"))
+		log.Println("Fetching image:", url, width)
 
 		bytes, err := imageFetcher.Fetch(url, ttl, width)
 		if err != nil {
@@ -119,6 +121,8 @@ func main() {
 
 	http.HandleFunc("/dimension", func(response http.ResponseWriter, request *http.Request) {
 		url := request.FormValue("url")
+		log.Println("Fetching dimension:", url)
+
 		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
 
 		config, err := imageFetcher.FetchDimension(url, ttl)
@@ -145,5 +149,11 @@ func main() {
 	})
 
 	log.Println("Listening on", config.Listen)
-	panic(http.ListenAndServe(config.Listen, nil))
+	server := &http.Server{
+		Addr:         config.Listen,
+		Handler:      nil,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}
+	panic(server.ListenAndServe())
 }

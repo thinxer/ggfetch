@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -129,6 +130,8 @@ func NewImageFetcher(name string, cacheSize int64, itemSize int64, client *http.
 		return nil
 	}
 	configGetter = func(context groupcache.Context, key string, dest groupcache.Sink) error {
+		log.Println("Fetching image: ", key)
+
 		url := strings.SplitN(key, ":", 3)[2]
 		c, err := fetchImageDimension(client, url)
 		if err != nil {

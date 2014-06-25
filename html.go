@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,7 +29,6 @@ type fetchResponse struct {
 }
 
 func fetchHTML(client *http.Client, url string, maxSize int64) (response fetchResponse, err error) {
-	log.Println("Fetching", url)
 	url = escapeFragment(url)
 	resp, err := client.Get(url)
 	if err != nil {
