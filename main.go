@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"code.google.com/p/go.net/publicsuffix"
+	"github.com/facebookgo/grace/gracehttp"
 	"github.com/golang/groupcache"
 	"gopkg.in/yaml.v1"
 )
 
 type Config struct {
 	Listen           string   // API Listen Address
-	Me               string   // as ip:port
 	Peers            []string // as a list of ip:port
 	CacheSize        int64    `yaml:"cache_size"`          // in MB
 	MaxItemSize      int64    `yaml:"max_item_size"`       // in KB
@@ -145,12 +145,11 @@ func main() {
 		json.NewEncoder(response).Encode(stats)
 	})
 
-	log.Println("Listening on", config.Listen)
 	server := &http.Server{
 		Addr:         config.Listen,
 		Handler:      nil,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
-	panic(server.ListenAndServe())
+	gracehttp.Serve(server)
 }
