@@ -72,15 +72,12 @@ func main() {
 	yaml.Unmarshal(bytes, &config)
 
 	// Setup groupcache peers
-	peers := groupcache.NewHTTPPool("http://" + config.Me)
+	peers := NewPeersPool("http://" + config.Listen)
 	peersList := []string{}
 	for _, peer := range config.Peers {
 		peersList = append(peersList, "http://"+peer)
 	}
 	peers.Set(peersList...)
-	go func() {
-		panic(http.ListenAndServe(config.Me, peers))
-	}()
 
 	// Setup GGFetch
 	htmlFetcher := NewHTMLFetcher("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
