@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -19,12 +20,12 @@ import (
 )
 
 type Config struct {
-	Listen           string   // API Listen Address
-	Peers            []string // as a list of ip:port
-	CacheSize        int64    `yaml:"cache_size"`          // in MB
-	MaxItemSize      int64    `yaml:"max_item_size"`       // in KB
-	ImageCacheSize   int64    `yaml:"image_cache_size"`    // in MB
-	ImageMaxItemSize int64    `yaml:"image_max_item_size"` // in KB
+	Listen           string // API Listen Address
+	Master           string
+	CacheSize        int64 `yaml:"cache_size"`          // in MB
+	MaxItemSize      int64 `yaml:"max_item_size"`       // in KB
+	ImageCacheSize   int64 `yaml:"image_cache_size"`    // in MB
+	ImageMaxItemSize int64 `yaml:"image_max_item_size"` // in KB
 }
 
 var (
@@ -74,11 +75,6 @@ func main() {
 
 	// Setup groupcache peers
 	peers := NewPeersPool("http://" + config.Listen)
-	peersList := []string{}
-	for _, peer := range config.Peers {
-		peersList = append(peersList, "http://"+peer)
-	}
-	peers.Set(peersList...)
 
 	// Setup GGFetch
 	htmlFetcher := NewHTMLFetcher("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
@@ -146,6 +142,45 @@ func main() {
 		stats.Image.Main = htmlFetcher.CacheStats(groupcache.MainCache)
 		stats.Image.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
 		json.NewEncoder(response).Encode(stats)
+	})
+
+	if config.Master == "" {
+		config.Master = config.Listen
+	}
+
+	var peersManager PeersManager
+
+	go func() {
+		for {
+			url := fmt.Sprintf("http://%s/ping?peer=%s", config.Master, config.Listen)
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				panic(err)
+			}
+			req.Close = true
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				log.Println("!!! ERROR Cannot connect to master:", err)
+				time.Sleep(time.Second)
+				continue
+			}
+			var livePeers []string
+			if err := json.NewDecoder(resp.Body).Decode(&livePeers); err != nil {
+				// Will this happen?
+				panic(err)
+			}
+			resp.Body.Close()
+			peers.Set(livePeers...)
+
+			time.Sleep(3 * time.Second)
+		}
+	}()
+
+	http.HandleFunc("/ping", func(response http.ResponseWriter, request *http.Request) {
+		if peer := request.FormValue("peer"); peer != "" {
+			peersManager.Ping("http://" + peer)
+		}
+		json.NewEncoder(response).Encode(peersManager.Get())
 	})
 
 	server := &http.Server{

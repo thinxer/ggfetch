@@ -39,7 +39,7 @@ import (
 const defaultBasePath = "/_groupcache/"
 
 // TODO: make this configurable as well.
-const defaultReplicas = 1
+const defaultReplicas = 3
 
 // PeersPool implements PeerPicker for a pool of HTTP peers.
 type PeersPool struct {
@@ -161,6 +161,7 @@ func (h *httpGetter) Get(context Context, in *pb.GetRequest, out *pb.GetResponse
 	if err != nil {
 		return err
 	}
+	req.Close = true
 	tr := http.DefaultTransport
 	if h.transport != nil {
 		tr = h.transport(context)

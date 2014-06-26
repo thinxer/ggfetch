@@ -1,7 +1,4 @@
-listen: 127.0.0.1:9001
-peers:
-    - 127.0.0.1:9001
-    - 127.0.0.1:9002
+listen: 127.0.0.1:19001
 # in MB
 cache_size: 64
 image_cache_size: 64
