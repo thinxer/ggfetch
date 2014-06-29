@@ -29,7 +29,7 @@ type Config struct {
 }
 
 var (
-	flagConfigFile = flag.String("config", "config.yml", "Config file to use.")
+	flagConfigFile = flag.String("config", "ggfetch.yml", "Config file to use.")
 )
 
 var (
