@@ -20,8 +20,6 @@ import (
 )
 
 type Config struct {
-	Listen           string // API Listen Address
-	Master           string
 	CacheSize        int64 `yaml:"cache_size"`          // in MB
 	MaxItemSize      int64 `yaml:"max_item_size"`       // in KB
 	ImageCacheSize   int64 `yaml:"image_cache_size"`    // in MB
@@ -29,7 +27,11 @@ type Config struct {
 }
 
 var (
-	flagConfigFile = flag.String("config", "ggfetch.yml", "Config file to use.")
+	flagConfigFile  = flag.String("config", "ggfetch.yml", "Config file to use.")
+	flagBind        = flag.String("bind", "localhost", "Address to bind on. Special value ec2 will use the local ipv4 address and localhost instead.")
+	flagPort        = flag.Int("port", 9001, "Port to listen on.")
+	flagListenLocal = flag.Bool("listenlocal", false, "Listen to 127.0.0.1 in addition to the bind address.")
+	flagMaster      = flag.String("master", "", "Master server to get config from.")
 )
 
 var (
@@ -42,18 +44,14 @@ func init() {
 	timeoutDialer := func(netw, addr string) (net.Conn, error) {
 		start := time.Now()
 		conn, err := net.DialTimeout(netw, addr, timeout)
-		if err != nil {
-			return nil, err
-		}
+		check(err)
 		conn.SetDeadline(start.Add(timeout))
 		return conn, nil
 	}
 	jar, err := cookiejar.New(&cookiejar.Options{
 		PublicSuffixList: publicsuffix.List,
 	})
-	if err != nil {
-		panic(err)
-	}
+	check(err)
 	defaultHTTPClient = &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
@@ -66,15 +64,36 @@ func init() {
 func main() {
 	flag.Parse()
 
-	bytes, err := ioutil.ReadFile(*flagConfigFile)
-	if err != nil {
-		panic(err)
+	if *flagBind == "ec2" {
+		resp, err := http.Get("http://169.254.169.254/latest/meta-data/local-ipv4/")
+		if err != nil {
+			panic(err)
+		}
+		content, err := ioutil.ReadAll(resp.Body)
+		check(err)
+		resp.Body.Close()
+		*flagBind = string(content)
+		*flagListenLocal = true
 	}
+
+	me := fmt.Sprintf("%s:%d", *flagBind, *flagPort)
 	config := Config{}
-	yaml.Unmarshal(bytes, &config)
+
+	if *flagMaster == "" {
+		bytes, err := ioutil.ReadFile(*flagConfigFile)
+		check(err)
+		yaml.Unmarshal(bytes, &config)
+	} else {
+		log.Println("Getting config from master:", *flagMaster)
+		resp, err := http.Get(fmt.Sprintf("http://%s/config", *flagMaster))
+		check(err)
+		check(json.NewDecoder(resp.Body).Decode(&config))
+		resp.Body.Close()
+	}
+	log.Printf("Config loaded: %#v", config)
 
 	// Setup groupcache peers
-	peers := NewPeersPool("http://" + config.Listen)
+	peers := NewPeersPool("http://" + me)
 
 	// Setup GGFetch
 	htmlFetcher := NewHTMLFetcher("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
@@ -144,15 +163,15 @@ func main() {
 		json.NewEncoder(response).Encode(stats)
 	})
 
-	if config.Master == "" {
-		config.Master = config.Listen
+	if *flagMaster == "" {
+		*flagMaster = me
 	}
 
 	var peersManager PeersManager
 
 	go func() {
 		for {
-			url := fmt.Sprintf("http://%s/ping?peer=%s", config.Master, config.Listen)
+			url := fmt.Sprintf("http://%s/ping?peer=%s", *flagMaster, me)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
 				panic(err)
@@ -183,11 +202,30 @@ func main() {
 		json.NewEncoder(response).Encode(peersManager.Get())
 	})
 
-	server := &http.Server{
-		Addr:         config.Listen,
+	http.HandleFunc("/config", func(response http.ResponseWriter, request *http.Request) {
+		json.NewEncoder(response).Encode(config)
+	})
+
+	var servers []*http.Server
+	servers = append(servers, &http.Server{
+		Addr:         me,
 		Handler:      nil,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 60 * time.Second,
+	})
+	if *flagListenLocal {
+		servers = append(servers, &http.Server{
+			Addr:         fmt.Sprintf("localhost:%d", *flagPort),
+			Handler:      nil,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 60 * time.Second,
+		})
 	}
-	gracehttp.Serve(server)
+	panic(gracehttp.Serve(servers...))
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
