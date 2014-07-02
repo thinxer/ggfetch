@@ -44,7 +44,9 @@ func init() {
 	timeoutDialer := func(netw, addr string) (net.Conn, error) {
 		start := time.Now()
 		conn, err := net.DialTimeout(netw, addr, timeout)
-		check(err)
+		if err != nil {
+			return nil, err
+		}
 		conn.SetDeadline(start.Add(timeout))
 		return conn, nil
 	}
@@ -174,7 +176,9 @@ func main() {
 			url := fmt.Sprintf("http://%s/ping?peer=%s", *flagMaster, me)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
-				panic(err)
+				log.Println("!!! ERROR Cannot connect to master:", err)
+				time.Sleep(time.Second)
+				continue
 			}
 			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
@@ -221,7 +225,7 @@ func main() {
 			WriteTimeout: 60 * time.Second,
 		})
 	}
-	panic(gracehttp.Serve(servers...))
+	check(gracehttp.Serve(servers...))
 }
 
 func check(err error) {
