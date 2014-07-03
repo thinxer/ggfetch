@@ -160,8 +160,8 @@ func main() {
 		stats.Goroutines = runtime.NumGoroutine()
 		stats.HTML.Main = htmlFetcher.CacheStats(groupcache.MainCache)
 		stats.HTML.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
-		stats.Image.Main = htmlFetcher.CacheStats(groupcache.MainCache)
-		stats.Image.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
+		stats.Image.Main = imageFetcher.CacheStats(groupcache.MainCache)
+		stats.Image.Hot = imageFetcher.CacheStats(groupcache.HotCache)
 		json.NewEncoder(response).Encode(stats)
 	})
 
