@@ -1,11 +1,12 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,30 +41,29 @@ func fetchHTML(client *http.Client, url string, maxSize int64) (response fetchRe
 		return
 	}
 
-	buf := new(bytes.Buffer)
+	var r io.Reader = resp.Body
+	if maxSize > 0 {
+		r = io.LimitReader(resp.Body, maxSize)
+	}
+	buffered := bufio.NewReader(r)
+
 	// Check Content Type
-	io.CopyN(buf, resp.Body, 512)
-	contentType := http.DetectContentType(buf.Bytes())
+	header, _ := buffered.Peek(512)
+	contentType := http.DetectContentType(header)
 	if !strings.HasPrefix(contentType, "text/") {
 		return
 	}
 
-	// Copy remaining content.
-	if maxSize == 0 {
-		_, err = io.Copy(buf, resp.Body)
-	} else {
-		remaining := maxSize - 512
-		if remaining > 0 {
-			_, err = io.CopyN(buf, resp.Body, remaining)
-		}
-	}
-	if err != io.EOF {
+	// Now read all remaining
+	buf, err := ioutil.ReadAll(buffered)
+	if err != nil {
 		return
 	}
-	if newurl, escaped := escapeFragmentMeta(url, buf.Bytes()); escaped {
+
+	if newurl, escaped := escapeFragmentMeta(url, buf); escaped {
 		return fetchHTML(client, newurl, maxSize)
 	}
-	response.Content = buf.Bytes()
+	response.Content = buf
 	response.URL = unescapeFragment(resp.Request.URL.String())
 	err = nil
 	return
