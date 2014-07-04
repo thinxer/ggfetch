@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"runtime"
@@ -41,25 +40,14 @@ var (
 // http client
 func init() {
 	timeout := 30 * time.Second
-	timeoutDialer := func(netw, addr string) (net.Conn, error) {
-		start := time.Now()
-		conn, err := net.DialTimeout(netw, addr, timeout)
-		if err != nil {
-			return nil, err
-		}
-		conn.SetDeadline(start.Add(timeout))
-		return conn, nil
-	}
 	jar, err := cookiejar.New(&cookiejar.Options{
 		PublicSuffixList: publicsuffix.List,
 	})
 	check(err)
 	defaultHTTPClient = &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			Dial:  timeoutDialer,
-		},
-		Jar: jar,
+		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
+		Jar:       jar,
+		Timeout:   timeout,
 	}
 }
 
