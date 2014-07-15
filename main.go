@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"runtime"
-	"strconv"
 	"time"
 
 	"code.google.com/p/go.net/publicsuffix"
@@ -19,10 +18,17 @@ import (
 )
 
 type Config struct {
-	CacheSize        int64 `yaml:"cache_size"`          // in MB
-	MaxItemSize      int64 `yaml:"max_item_size"`       // in KB
-	ImageCacheSize   int64 `yaml:"image_cache_size"`    // in MB
-	ImageMaxItemSize int64 `yaml:"image_max_item_size"` // in KB
+	HTML struct {
+		CacheSize   int64 `yaml:"cache_size"`
+		MaxItemSize int64 `yaml:"max_item_size"`
+	}
+	Image struct {
+		CacheSize   int64 `yaml:"cache_size"`
+		MaxItemSize int64 `yaml:"max_item_size"`
+	}
+	Dimension struct {
+		CacheSize int64 `yaml:"cache_size"`
+	}
 }
 
 var (
@@ -54,6 +60,7 @@ func init() {
 func main() {
 	flag.Parse()
 
+	// Special case for ec2 binding
 	if *flagBind == "ec2" {
 		resp, err := http.Get("http://169.254.169.254/latest/meta-data/local-ipv4/")
 		if err != nil {
@@ -67,12 +74,13 @@ func main() {
 	}
 
 	me := fmt.Sprintf("%s:%d", *flagBind, *flagPort)
-	config := Config{}
+	var config Config
 
 	if *flagMaster == "" {
 		bytes, err := ioutil.ReadFile(*flagConfigFile)
 		check(err)
 		yaml.Unmarshal(bytes, &config)
+		*flagMaster = me
 	} else {
 		log.Println("Getting config from master:", *flagMaster)
 		resp, err := http.Get(fmt.Sprintf("http://%s/config", *flagMaster))
@@ -82,121 +90,46 @@ func main() {
 	}
 	log.Printf("Config loaded: %#v", config)
 
-	// Setup groupcache peers
-	peers := NewPeersPool("http://" + me)
-
 	// Setup GGFetch
-	htmlFetcher := NewHTMLFetcher("fetch", config.CacheSize<<20, config.MaxItemSize<<10, defaultHTTPClient)
-	imageFetcher := NewImageFetcher("image", config.ImageCacheSize<<20, config.ImageMaxItemSize<<10, defaultHTTPClient)
+	ggfetch := new(GGFetchHandler)
+	ggfetch.Register("html", HTMLFetcher{
+		MaxItemSize: config.HTML.MaxItemSize << 10,
+		Client:      defaultHTTPClient,
+	}, config.HTML.CacheSize<<20)
+	ggfetch.Register("image", ImageFetcher{
+		MaxItemSize: config.Image.MaxItemSize << 10,
+		Client:      defaultHTTPClient,
+	}, config.Image.CacheSize<<20)
+	ggfetch.Register("dimension", DimensionFetcher{
+		Client: defaultHTTPClient,
+	}, config.Dimension.CacheSize<<20)
 
-	// Setup
-	http.HandleFunc("/fetch", func(response http.ResponseWriter, request *http.Request) {
-		url := request.FormValue("url")
-		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
-		log.Println("Fetching HTML:", url)
-
-		realUrl, buf, err := htmlFetcher.Fetch(url, ttl)
-		if err != nil {
-			log.Println("Error while fetching HTML:", err)
-		}
-		response.Header().Set("X-Real-URL", realUrl)
-		_, err = response.Write(buf)
-		if err != nil {
-			log.Println("Error while writing response:", err)
-		}
-	})
-
-	http.HandleFunc("/resize", func(response http.ResponseWriter, request *http.Request) {
-		url := request.FormValue("url")
-		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
-		width, _ := strconv.Atoi(request.FormValue("width"))
-		log.Println("Fetching image:", url, width)
-
-		bytes, err := imageFetcher.Fetch(url, ttl, width)
-		if err != nil {
-			log.Println("Error while fetching image:", err)
-		}
-		_, err = response.Write(bytes)
-		if err != nil {
-			log.Println("Error while writing response:", err)
-		}
-	})
-
-	http.HandleFunc("/dimension", func(response http.ResponseWriter, request *http.Request) {
-		url := request.FormValue("url")
-		log.Println("Fetching dimension:", url)
-
-		ttl, _ := strconv.ParseInt(request.FormValue("ttl"), 10, 64)
-
-		config, err := imageFetcher.FetchDimension(url, ttl)
-		if err != nil {
-			log.Println("Error while fetching image config:", err)
-		}
-		err = json.NewEncoder(response).Encode(config)
-		if err != nil {
-			log.Println("Error while writing response:", err)
-		}
-	})
-
-	http.HandleFunc("/stats", func(response http.ResponseWriter, request *http.Request) {
-		var stats struct {
-			Goroutines  int
-			HTML, Image struct {
-				Main, Hot groupcache.CacheStats
-			}
-		}
-		stats.Goroutines = runtime.NumGoroutine()
-		stats.HTML.Main = htmlFetcher.CacheStats(groupcache.MainCache)
-		stats.HTML.Hot = htmlFetcher.CacheStats(groupcache.HotCache)
-		stats.Image.Main = imageFetcher.CacheStats(groupcache.MainCache)
-		stats.Image.Hot = imageFetcher.CacheStats(groupcache.HotCache)
-		json.NewEncoder(response).Encode(stats)
-	})
-
-	if *flagMaster == "" {
-		*flagMaster = me
-	}
-
-	var peersManager PeersManager
-
-	go func() {
-		for {
-			url := fmt.Sprintf("http://%s/ping?peer=%s", *flagMaster, me)
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				log.Println("!!! ERROR Cannot connect to master:", err)
-				time.Sleep(time.Second)
-				continue
-			}
-			req.Close = true
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				log.Println("!!! ERROR Cannot connect to master:", err)
-				time.Sleep(time.Second)
-				continue
-			}
-			var livePeers []string
-			if err := json.NewDecoder(resp.Body).Decode(&livePeers); err != nil {
-				// Will this happen?
-				panic(err)
-			}
-			resp.Body.Close()
-			peers.Set(livePeers...)
-
-			time.Sleep(3 * time.Second)
-		}
-	}()
-
-	http.HandleFunc("/ping", func(response http.ResponseWriter, request *http.Request) {
-		if peer := request.FormValue("peer"); peer != "" {
-			peersManager.Ping("http://" + peer)
-		}
-		json.NewEncoder(response).Encode(peersManager.Get())
-	})
+	// Fetchers
+	http.Handle("/", ggfetch)
 
 	http.HandleFunc("/config", func(response http.ResponseWriter, request *http.Request) {
 		json.NewEncoder(response).Encode(config)
 	})
+
+	http.HandleFunc("/stats", func(response http.ResponseWriter, request *http.Request) {
+		var stats struct {
+			Goroutines int
+			Caches     map[string]groupcache.CacheStats
+		}
+		stats.Goroutines = runtime.NumGoroutine()
+		stats.Caches = make(map[string]groupcache.CacheStats)
+		for name, handler := range ggfetch.methods {
+			stats.Caches[name] = handler.Group.CacheStats(groupcache.MainCache)
+			stats.Caches[name+"_hot"] = handler.Group.CacheStats(groupcache.HotCache)
+		}
+		json.NewEncoder(response).Encode(stats)
+	})
+
+	// Peers
+	peers := NewPeersPool("http://" + me)
+	peersManager := new(PeersManager)
+	http.Handle("/ping", peersManager)
+	go peersManager.Heartbeat(fmt.Sprintf("http://%s/ping?peer=%s", *flagMaster, me), peers.Set)
 
 	var servers []*http.Server
 	servers = append(servers, &http.Server{

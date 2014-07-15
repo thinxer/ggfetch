@@ -4,34 +4,22 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strconv"
+	neturl "net/url"
 	"strings"
-	"time"
-
-	"github.com/golang/groupcache"
 )
 
-type StatusCodeError struct {
-	URL  string
-	Code int
+type HTMLFetcher struct {
+	MaxItemSize int64
+	Client      *http.Client
 }
 
-func (r StatusCodeError) Error() string {
-	return fmt.Sprintf("Response code %d for URL: %s", r.Code, r.URL)
-}
-
-type fetchResponse struct {
-	URL     string
-	Content []byte
-}
-
-func fetchHTML(client *http.Client, url string, maxSize int64) (response fetchResponse, err error) {
+func (h HTMLFetcher) Generate(query neturl.Values) (content []byte, err error) {
+	url := query.Get("url")
 	url = escapeFragment(url)
-	resp, err := client.Get(url)
+	resp, err := h.Client.Get(url)
 	if err != nil {
 		return
 	}
@@ -42,8 +30,8 @@ func fetchHTML(client *http.Client, url string, maxSize int64) (response fetchRe
 	}
 
 	var r io.Reader = resp.Body
-	if maxSize > 0 {
-		r = io.LimitReader(resp.Body, maxSize)
+	if h.MaxItemSize > 0 {
+		r = io.LimitReader(resp.Body, h.MaxItemSize)
 	}
 	buffered := bufio.NewReader(r)
 
@@ -61,59 +49,33 @@ func fetchHTML(client *http.Client, url string, maxSize int64) (response fetchRe
 	}
 
 	if newurl, escaped := escapeFragmentMeta(url, buf); escaped {
-		return fetchHTML(client, newurl, maxSize)
+		query.Set("url", newurl)
+		return h.Generate(query)
 	}
-	response.Content = buf
-	response.URL = unescapeFragment(resp.Request.URL.String())
-	err = nil
-	return
+
+	return json.Marshal(fetchResponse{unescapeFragment(resp.Request.URL.String()), buf})
 }
 
-type HTMLFetcher struct {
-	group *groupcache.Group
+func (h HTMLFetcher) WriteResponse(w http.ResponseWriter, cached []byte) error {
+	fp := fetchResponse{}
+	if err := json.Unmarshal(cached, &fp); err != nil {
+		return err
+	}
+	w.Header().Set("X-Real-URL", fp.URL)
+	_, err := w.Write(fp.Content)
+	return err
 }
 
-func (gf HTMLFetcher) Fetch(url string, ttl int64) (realUrl string, content []byte, err error) {
-	prefix := ":"
-	if ttl > 0 {
-		offset := int64(crc32.ChecksumIEEE([]byte(url))) % ttl
-		id := (time.Now().Unix() + offset) / ttl
-		prefix = strconv.FormatInt(id, 16) + ":"
-	}
-	var buf []byte
-	err = gf.group.Get(nil, prefix+url, groupcache.AllocatingByteSliceSink(&buf))
-	if err != nil {
-		return
-	}
-	var response fetchResponse
-	err = json.Unmarshal(buf, &response)
-	if err != nil {
-		return
-	}
-	return response.URL, response.Content, nil
+type StatusCodeError struct {
+	URL  string
+	Code int
 }
 
-func (gf HTMLFetcher) CacheStats(which groupcache.CacheType) groupcache.CacheStats {
-	return gf.group.CacheStats(which)
+func (r StatusCodeError) Error() string {
+	return fmt.Sprintf("Response code %d for URL: %s", r.Code, r.URL)
 }
 
-func NewHTMLFetcher(name string, cacheSize int64, itemSize int64, client *http.Client) HTMLFetcher {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	var getter groupcache.GetterFunc
-	getter = func(_ groupcache.Context, key string, dest groupcache.Sink) error {
-		url := strings.SplitN(key, ":", 2)[1]
-		response, err := fetchHTML(client, url, itemSize)
-		if err != nil {
-			return err
-		}
-		bytes, err := json.Marshal(response)
-		if err != nil {
-			return err
-		}
-		dest.SetBytes(bytes)
-		return nil
-	}
-	return HTMLFetcher{groupcache.NewGroup(name, cacheSize, getter)}
+type fetchResponse struct {
+	URL     string
+	Content []byte
 }

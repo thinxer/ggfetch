@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"log"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -43,4 +46,38 @@ func (p *PeersManager) Ping(pp string) {
 		Peer:     pp,
 		LastSeen: time.Now(),
 	})
+}
+
+func (p *PeersManager) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if peer := request.FormValue("peer"); peer != "" {
+		p.Ping("http://" + peer)
+	}
+	json.NewEncoder(response).Encode(p.Get())
+}
+
+func (p *PeersManager) Heartbeat(url string, setpeers func(peers ...string)) {
+	for {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			log.Println("!!! ERROR Cannot connect to master:", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		req.Close = true
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			log.Println("!!! ERROR Cannot connect to master:", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		var livePeers []string
+		if err := json.NewDecoder(resp.Body).Decode(&livePeers); err != nil {
+			// Will this happen?
+			panic(err)
+		}
+		resp.Body.Close()
+		setpeers(livePeers...)
+
+		time.Sleep(3 * time.Second)
+	}
 }

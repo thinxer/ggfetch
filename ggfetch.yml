@@ -1,6 +1,8 @@
-# in MB
-cache_size: 64
-image_cache_size: 64
-# in KB
-max_item_size: 1024
-image_max_item_size: 4096
+html:
+  cache_size: 64
+  max_item_size: 1024
+image:
+  cache_size: 64
+  max_item_size: 4096
+dimension:
+  cache_size: 16
