@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/cookiejar"
-	"runtime"
+	_ "net/http/pprof"
 	"time"
 
 	"code.google.com/p/go.net/publicsuffix"
@@ -113,10 +113,8 @@ func main() {
 
 	http.HandleFunc("/stats", func(response http.ResponseWriter, request *http.Request) {
 		var stats struct {
-			Goroutines int
-			Caches     map[string]groupcache.CacheStats
+			Caches map[string]groupcache.CacheStats
 		}
-		stats.Goroutines = runtime.NumGoroutine()
 		stats.Caches = make(map[string]groupcache.CacheStats)
 		for name, handler := range ggfetch.methods {
 			stats.Caches[name] = handler.Group.CacheStats(groupcache.MainCache)
