@@ -144,6 +144,9 @@ func main() {
 			WriteTimeout: 60 * time.Second,
 		})
 	}
+	for _, server := range servers {
+		server.SetKeepAlivesEnabled(false)
+	}
 	check(gracehttp.Serve(servers...))
 }
 
