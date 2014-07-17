@@ -66,9 +66,11 @@ func (g *GGFetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var buf []byte
 	if err := hi.Group.Get(nil, key, groupcache.AllocatingByteSliceSink(&buf)); err != nil {
-		panic(err)
+		log.Println("ERROR", err, "METHOD", method, "KEY", key)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	if err := hi.Fetcher.WriteResponse(w, buf); err != nil {
-		panic(err)
+		log.Println("ERROR", err, "METHOD", method, "KEY", key)
 	}
 }
