@@ -15,7 +15,7 @@ When deployed in EC2, you can bind to a special address called `ec2`, and the se
 APIs
 ------
 
-Call `/fetch?url={url}&ttl={ttl}`. TTL is specified in seconds, and the object is guaranteed to exist at most that duration. It may live shorter, though.
+You may call `/{method}?{queries}` directly. Or you may choose to use a simple client, which has additional TTL support. Import `github.com/thinxer/ggfetch/client` and use the `Client` for queries. Doc [here](http://godoc.org/github.com/thinxer/ggfetch/client).
 
 License
 -------
