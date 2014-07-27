@@ -18,7 +18,11 @@ type HTMLFetcher struct {
 
 func (h HTMLFetcher) Generate(query neturl.Values) (content []byte, err error) {
 	url := query.Get("url")
-	url = escapeFragment(url)
+	// 0 to disable ajax crawling. default to true.
+	ajaxCrawling := query.Get("ajax") != "0"
+	if ajaxCrawling {
+		url = escapeFragment(url)
+	}
 	resp, err := h.Client.Get(url)
 	if err != nil {
 		return
@@ -48,12 +52,18 @@ func (h HTMLFetcher) Generate(query neturl.Values) (content []byte, err error) {
 		return
 	}
 
-	if newurl, escaped := escapeFragmentMeta(url, buf); escaped {
-		query.Set("url", newurl)
-		return h.Generate(query)
+	if ajaxCrawling {
+		if newurl, escaped := escapeFragmentMeta(url, buf); escaped {
+			query.Set("url", newurl)
+			return h.Generate(query)
+		}
 	}
 
-	return json.Marshal(fetchResponse{unescapeFragment(resp.Request.URL.String()), buf})
+	originalUrl := resp.Request.URL.String()
+	if ajaxCrawling {
+		originalUrl = unescapeFragment(originalUrl)
+	}
+	return json.Marshal(fetchResponse{originalUrl, buf})
 }
 
 func (h HTMLFetcher) WriteResponse(w http.ResponseWriter, cached []byte) error {
