@@ -59,7 +59,7 @@ func (c Client) Do(method string, ttl uint32, kvs ...string) (*http.Response, er
 	if err != nil {
 		return nil, err
 	}
-	return c.Client.Do(req)
+	return client.Do(req)
 }
 
 // === Convenient methods ===
