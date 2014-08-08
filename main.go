@@ -18,6 +18,11 @@ import (
 )
 
 type Config struct {
+	// Fetch timeout
+	Timeout int64 `yaml:"timeout"`
+	// Enable Keep-Alive on fetch
+	KeepAlive bool `yaml:"keep_alive"`
+
 	HTML struct {
 		CacheSize   int64 `yaml:"cache_size"`
 		MaxItemSize int64 `yaml:"max_item_size"`
@@ -39,21 +44,19 @@ var (
 	flagMaster      = flag.String("master", "", "Master server to get config from.")
 )
 
-var (
-	defaultHTTPClient *http.Client
-)
-
 // http client
-func init() {
-	timeout := 30 * time.Second
+func getHTTPClient(c *Config) *http.Client {
 	jar, err := cookiejar.New(&cookiejar.Options{
 		PublicSuffixList: publicsuffix.List,
 	})
 	check(err)
-	defaultHTTPClient = &http.Client{
-		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
-		Jar:       jar,
-		Timeout:   timeout,
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:             http.ProxyFromEnvironment,
+			DisableKeepAlives: !c.KeepAlive,
+		},
+		Jar:     jar,
+		Timeout: time.Duration(c.Timeout) * time.Second,
 	}
 }
 
@@ -91,6 +94,7 @@ func main() {
 	log.Printf("Config loaded: %#v", config)
 
 	// Setup GGFetch
+	defaultHTTPClient := getHTTPClient(&config)
 	ggfetch := new(GGFetchHandler)
 	ggfetch.Register("html", HTMLFetcher{
 		MaxItemSize: config.HTML.MaxItemSize << 10,

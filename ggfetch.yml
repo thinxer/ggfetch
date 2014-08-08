@@ -1,3 +1,5 @@
+timeout: 30
+keep_alive: false
 html:
   cache_size: 64
   max_item_size: 1024
