@@ -11,7 +11,7 @@ import (
 	_ "net/http/pprof"
 	"time"
 
-	"code.google.com/p/go.net/publicsuffix"
+	"golang.org/x/net/publicsuffix"
 	"github.com/facebookgo/grace/gracehttp"
 	"github.com/golang/groupcache"
 	"gopkg.in/yaml.v1"
