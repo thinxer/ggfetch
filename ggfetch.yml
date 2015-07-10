@@ -4,7 +4,7 @@ html:
   cache_size: 64
   max_item_size: 1024
 image:
-  cache_size: 64
-  max_item_size: 4096
+  cache_size: 1024
+  max_item_size: 1024
 dimension:
   cache_size: 16

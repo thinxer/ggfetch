@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"image"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -45,6 +48,7 @@ type GGFetchHandler struct {
 }
 
 func (g *GGFetchHandler) Register(name string, fetcher Fetcher, size int64) {
+	fmt.Println("Register", name, size)
 	if g.methods == nil {
 		g.methods = make(map[string]entry)
 	}
@@ -64,10 +68,17 @@ func (g *GGFetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var buf []byte
+	buf := make([]byte, 0)
 	if err := hi.Group.Get(nil, key, groupcache.AllocatingByteSliceSink(&buf)); err != nil {
 		log.Println("ERROR", err, "METHOD", method, "KEY", key)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		var statusCode int
+		switch err {
+		case image.ErrFormat, io.ErrUnexpectedEOF:
+			statusCode = http.StatusBadRequest
+		default:
+			statusCode = http.StatusInternalServerError
+		}
+		http.Error(w, err.Error(), statusCode)
 		return
 	}
 	if err := hi.Fetcher.WriteResponse(w, buf); err != nil {
