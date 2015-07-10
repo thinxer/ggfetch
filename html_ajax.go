@@ -5,9 +5,8 @@ import (
 	"net/url"
 	"strings"
 
-	"code.google.com/p/go.net/html/atom"
-
-	"code.google.com/p/go.net/html"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 const escapedFragment = "_escaped_fragment_"
